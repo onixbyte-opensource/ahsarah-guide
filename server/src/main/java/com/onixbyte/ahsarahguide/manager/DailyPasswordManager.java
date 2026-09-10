@@ -8,12 +8,16 @@ import com.onixbyte.ahsarahguide.exeption.InternalServerErrorException;
 import com.onixbyte.ahsarahguide.shared.JacksonModules;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Objects;
 
 /**
@@ -60,25 +64,40 @@ public class DailyPasswordManager {
     public DailyPasswordResponse getDailyPassword() {
         var key = CACHE_KEY_PREFIX + LocalDate.now();
 
+        // Attempt to fetch the cached response
         var cached = redisTemplate.opsForValue().get(key);
         if (cached != null) {
             return (DailyPasswordResponse) cached;
         }
 
-        var response = restClient.get()
-                .uri((uriBuilder) -> uriBuilder
-                        .path("/sjzmm")
-                        .queryParam("ckey", "")
-                        .queryParam("type", "json")
-                        .build())
-                .retrieve()
-                .body(DailyPasswordResponse.class);
-
-        if (Objects.isNull(response)) {
-            throw new InternalServerErrorException("暂无每日密码数据。");
+        DailyPasswordResponse response;
+        try {
+            // Fetch from the upstream remote service
+            response = restClient.get()
+                    .uri((uriBuilder) -> uriBuilder
+                            .path("/sjzmm")
+                            .queryParam("ckey", "")
+                            .queryParam("type", "json")
+                            .build())
+                    .retrieve()
+                    .body(DailyPasswordResponse.class);
+        } catch (Exception e) {
+            // Catch network errors, timeouts, or 4xx/5xx responses from the upstream service
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Failed to connect to the upstream service.", e);
         }
 
-        redisTemplate.opsForValue().set(key, response, Duration.ofDays(1L));
+        if (Objects.isNull(response)) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "No daily password data available.");
+        }
+
+        // Calculate the precise duration until midnight to optimise Redis memory usage
+        var now = LocalDateTime.now();
+        var midnight = now.toLocalDate().atStartOfDay().plusDays(1);
+        var durationUntilMidnight = Duration.between(now, midnight);
+
+        // Save to Redis with the calculated TTL
+        redisTemplate.opsForValue().set(key, response, durationUntilMidnight);
+
         return response;
     }
 }
