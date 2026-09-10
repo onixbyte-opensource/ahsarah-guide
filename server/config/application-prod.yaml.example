@@ -29,6 +29,47 @@ spring:
       # Uncomment if the server requires a password.
       #
       # password: qwerty
+  mail:
+    # SMTP endpoint.
+    host: smtp.example.com
+
+    # SMTP port.
+    #
+    # 465 uses implicit TLS (SMTPS). If outbound 465 is blocked on the network, switch to 587 and
+    # replace the `ssl` property below with `starttls.enable` instead.
+    port: 465
+
+    # Sending address, which is also used as the `From` address of every dispatched message.
+    #
+    # It MUST belong to a verified sending domain in the Tencent Cloud Email console.
+    username: app@example.com
+
+    # SMTP password of the sending address above, as configured in the Tencent Cloud Email console.
+    password: 123456
+
+    # Encoding applied to the message headers and body.
+    default-encoding: UTF-8
+
+    properties:
+      mail:
+        smtp:
+          # Whether the SMTP server requires authentication.
+          auth: true
+
+          # Implicit TLS, required by port 465.
+          #
+          # When using port 587 + STARTTLS instead, drop this property, then enable STARTTLS in
+          # its place:
+          #
+          #   starttls:
+          #     enable: true
+          ssl:
+            enable: true
+
+          # Fail fast instead of hanging when the SMTP server is unreachable.
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
 
 logging:
   pattern:
