@@ -73,11 +73,11 @@ public class DailyPasswordManager {
                     .body(DailyPasswordResponse.class);
         } catch (Exception e) {
             // Catch network errors, timeouts, or 4xx/5xx responses from the upstream service
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Failed to connect to the upstream service.", e);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "无法获取每日密码数据。", e);
         }
 
         if (Objects.isNull(response)) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "No daily password data available.");
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "无法获取每日密码数据。");
         }
 
         return response;
