@@ -1,9 +1,11 @@
 package com.onixbyte.ahsarahguide.config;
 
 import com.onixbyte.ahsarahguide.shared.JacksonRedisSerialiser;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -39,21 +41,24 @@ import java.time.Duration;
 public class CacheConfig {
 
     /**
-     * Creates a custom Redis cache manager with JSON serialisation support.
+     * Creates the application's primary cache manager, backed by Redis.
      * <p>
-     * This method configures a {@link RedisCacheManager} that uses string serialisation for cache
-     * keys and {@link GenericJackson2JsonRedisSerializer} for cache values. This setup ensures that
-     * complex objects can be stored and retrieved from Redis cache whilst maintaining readability
-     * and compatibility with JSON-based systems.
+     * This manager is marked {@link Primary}, so it is the one selected for any
+     * {@code @Cacheable} or {@code @CacheEvict} annotation that does not name a manager
+     * explicitly, as well as for any {@link CacheManager} that is injected by type.
+     * <p>
+     * Cache entries are keyed using string serialisation and values are stored as JSON via
+     * {@link JacksonRedisSerialiser}. Every entry expires after two hours, making this manager
+     * suitable for data that is expensive to compute but not required to survive for long.
      *
      * @param connectionFactory the Redis connection factory used to establish connections
-     * @return a configured {@link RedisCacheManager} with custom serialisation settings
+     * @return a fully configured {@link CacheManager} with a two-hour default entry TTL
+     * @see #longTermCacheManager(RedisConnectionFactory)
      * @see RedisCacheManager
-     * @see GenericJackson2JsonRedisSerializer
-     * @see RedisSerializationContext
      */
+    @Primary
     @Bean
-    public RedisCacheManager cacheManager(
+    public CacheManager defaultCacheManager(
             RedisConnectionFactory connectionFactory
     ) {
         var _keySerializer = RedisSerializer.string();
@@ -63,7 +68,40 @@ public class CacheConfig {
                         .fromSerializer(_keySerializer))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair
                         .fromSerializer(JacksonRedisSerialiser.INSTANCE))
-                .entryTtl(Duration.ofMinutes(90L));
+                .entryTtl(Duration.ofHours(2L));
+
+        return RedisCacheManager.RedisCacheManagerBuilder
+                .fromConnectionFactory(connectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .build();
+    }
+
+    /**
+     * Creates a secondary cache manager for data that must be retained for longer.
+     * <p>
+     * This manager is not {@link Primary}; it must be requested by name wherever it is needed,
+     * as in {@code @Cacheable(cacheManager = "longTermCacheManager")}.
+     * <p>
+     * Serialisation is configured identically to {@link #defaultCacheManager}, but entries
+     * expire after one day rather than two hours.
+     *
+     * @param connectionFactory the Redis connection factory used to establish connections
+     * @return a fully configured {@link CacheManager} with a one-day default entry TTL
+     * @see #defaultCacheManager(RedisConnectionFactory)
+     * @see RedisCacheManager
+     */
+    @Bean
+    public CacheManager longTermCacheManager(
+            RedisConnectionFactory connectionFactory
+    ) {
+        var _keySerializer = RedisSerializer.string();
+
+        var cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair
+                        .fromSerializer(_keySerializer))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair
+                        .fromSerializer(JacksonRedisSerialiser.INSTANCE))
+                .entryTtl(Duration.ofDays(1L));
 
         return RedisCacheManager.RedisCacheManagerBuilder
                 .fromConnectionFactory(connectionFactory)

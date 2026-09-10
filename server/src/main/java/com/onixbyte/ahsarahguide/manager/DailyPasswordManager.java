@@ -4,20 +4,15 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.onixbyte.ahsarahguide.domain.dto.DailyPasswordResponse;
-import com.onixbyte.ahsarahguide.exeption.InternalServerErrorException;
 import com.onixbyte.ahsarahguide.shared.JacksonModules;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Duration;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.Objects;
 
 /**
@@ -28,15 +23,13 @@ import java.util.Objects;
 @Component
 public class DailyPasswordManager {
 
-    private static final String CACHE_KEY_PREFIX = "daily-password:";
+    private static final String CACHE_NAME = "daily-password";
 
     private final RestClient restClient;
-    private final RedisTemplate<String, Object> redisTemplate;
 
     @Autowired
     public DailyPasswordManager(
-            RestClient.Builder restClientBuilder,
-            RedisTemplate<String, Object> redisTemplate
+            RestClient.Builder restClientBuilder
     ) {
         var snakeCaseMapper = new ObjectMapper();
         snakeCaseMapper.setPropertyNamingStrategy(
@@ -54,25 +47,22 @@ public class DailyPasswordManager {
                             new MappingJackson2HttpMessageConverter(snakeCaseMapper));
                 })
                 .build();
-        this.redisTemplate = redisTemplate;
     }
 
     /**
      * Retrieves the daily password from cache or generates a new one.
      * @return the daily password response
      */
+    @Cacheable(
+            cacheNames = CACHE_NAME,
+            key = "T(java.time.LocalDate).now().toString()",
+            sync = true,
+            unless = "#result == null",
+            cacheManager = "longTermCacheManager"
+    )
     public DailyPasswordResponse getDailyPassword() {
-        var key = CACHE_KEY_PREFIX + LocalDate.now();
-
-        // Attempt to fetch the cached response
-        var cached = redisTemplate.opsForValue().get(key);
-        if (cached != null) {
-            return (DailyPasswordResponse) cached;
-        }
-
         DailyPasswordResponse response;
         try {
-            // Fetch from the upstream remote service
             response = restClient.get()
                     .uri((uriBuilder) -> uriBuilder
                             .path("/sjzmm")
@@ -89,14 +79,6 @@ public class DailyPasswordManager {
         if (Objects.isNull(response)) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "No daily password data available.");
         }
-
-        // Calculate the precise duration until midnight to optimise Redis memory usage
-        var now = LocalDateTime.now();
-        var midnight = now.toLocalDate().atStartOfDay().plusDays(1);
-        var durationUntilMidnight = Duration.between(now, midnight);
-
-        // Save to Redis with the calculated TTL
-        redisTemplate.opsForValue().set(key, response, durationUntilMidnight);
 
         return response;
     }
